@@ -1,15 +1,47 @@
 {
-  "name": "xrpl-fireblocks-backend",
+  "name": "ime-xrpl-fireblocks-backend",
   "version": "1.0.0",
-  "description": "",
+  "description": "Real-World Asset tokenization platform using XRPL blockchain and Fireblocks wallet infrastructure",
   "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "author": "IME Development Team",
+  "license": "PROPRIETARY",
+  "private": true,
+  "keywords": [
+    "xrpl",
+    "fireblocks",
+    "blockchain",
+    "tokenization",
+    "real-world-assets",
+    "rwa",
+    "defi",
+    "wallet",
+    "express",
+    "api"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "your-repository-url"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:health": "curl http://localhost:5000/api/health",
+    "test:docs": "curl http://localhost:5000/api/docs",
+    "lint": "echo \"Linting not configured yet\"",
+    "build": "echo \"No build step required for Node.js\"",
+    "clean": "rm -rf node_modules package-lock.json && npm install",
+    "logs": "tail -f logs/app.log",
+    "health": "node -e \"fetch('http://localhost:5000/api/health').then(r=>r.json()).then(console.log).catch(console.error)\"",
+    "setup": "npm install && echo \"✅ Dependencies installed. Copy .env.example to .env and configure your credentials.\"",
+    "verify": "node -e \"console.log('✅ Node.js version:', process.version); console.log('✅ Environment:', process.env.NODE_ENV || 'development');\"",
+    "production": "NODE_ENV=production node index.js",
+    "staging": "NODE_ENV=staging node index.js"
+  },
   "dependencies": {
     "body-parser": "^2.2.0",
     "cors": "^2.8.5",
@@ -17,5 +49,47 @@
     "express": "^5.1.0",
     "fireblocks-sdk": "^5.38.0",
     "xrpl": "^4.3.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  },
+  "optionalDependencies": {},
+  "peerDependencies": {},
+  "bundledDependencies": [],
+  "config": {
+    "port": 5000,
+    "env": "development"
+  },
+  "nodemonConfig": {
+    "watch": [
+      "index.js",
+      "controllers/",
+      "services/",
+      ".env"
+    ],
+    "ext": "js,json",
+    "ignore": [
+      "node_modules/",
+      "logs/",
+      "*.log"
+    ],
+    "delay": "1000"
+  },
+  "eslintConfig": {
+    "env": {
+      "node": true,
+      "es2021": true
+    },
+    "extends": [
+      "eslint:recommended"
+    ],
+    "parserOptions": {
+      "ecmaVersion": 2021,
+      "sourceType": "module"
+    },
+    "rules": {
+      "no-unused-vars": "warn",
+      "no-console": "off"
+    }
   }
 }
