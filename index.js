@@ -1,295 +1,448 @@
 require('dotenv').config();
 const express = require('express');
-const xrpl = require('xrpl');
-const { FireblocksSDK } = require('fireblocks-sdk');
+const cors = require('cors');
+
+// Import services
+const xrplService = require('./services/xrplService');
+const fireblocksService = require('./services/fireblocksService');
+
+// Import controllers
+const assetController = require('./controllers/assetController');
 
 const app = express();
-app.use(express.json());
-app.use(require('cors')());
 
-// Fireblocks Setup - Using string secret from .env instead of file
-const fireblocks = new FireblocksSDK(
-    process.env.FIREBLOCKS_API_SECRET, 
-    process.env.FIREBLOCKS_API_KEY,
-    process.env.FIREBLOCKS_BASE_URL
-);
+// Middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
 
-// XRPL Setup
-const client = new xrpl.Client(process.env.XRPL_ENDPOINT);
+// CORS configuration for Lovable frontend
+app.use(cors({
+    origin: process.env.FRONTEND_URL || '*', // Configure this for your Lovable app
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
 
-// Global variables to track connection status
-let xrplConnected = false;
-let fireblocksReady = false;
+// Request logging middleware
+app.use((req, res, next) => {
+    console.log(`📡 ${req.method} ${req.path} - ${new Date().toISOString()}`);
+    next();
+});
 
-async function connectXRPL() {
+// Global variables to track service status
+let servicesReady = {
+    xrpl: false,
+    fireblocks: false,
+    server: false
+};
+
+/**
+ * Initialize all services
+ */
+async function initializeServices() {
+    console.log("🚀 Initializing services...");
+    
     try {
+        // Initialize XRPL Service
         console.log("🔗 Connecting to XRPL...");
-        await client.connect();
-        xrplConnected = true;
-        console.log("✅ Connected to XRPL Testnet");
-    } catch (error) {
-        console.error("❌ Failed to connect to XRPL:", error.message);
-        xrplConnected = false;
-    }
-}
-
-async function initializeFireblocks() {
-    try {
-        console.log("🔗 Initializing Fireblocks SDK...");
-        // Test Fireblocks connection by getting vault accounts
-        const vaultAccounts = await fireblocks.getVaultAccounts();
-        fireblocksReady = true;
-        console.log("✅ Fireblocks SDK initialized successfully");
-        console.log(`📊 Found ${vaultAccounts.length} vault accounts`);
-    } catch (error) {
-        console.error("❌ Failed to initialize Fireblocks:", error.message);
-        fireblocksReady = false;
-    }
-}
-
-// Initialize connections
-connectXRPL();
-initializeFireblocks();
-
-// Health Check Endpoint - Enhanced with connection status
-app.get('/api/health', (req, res) => {
-    res.json({ 
-        status: "Backend is running 🚀",
-        services: {
-            xrpl: xrplConnected ? "Connected ✅" : "Disconnected ❌",
-            fireblocks: fireblocksReady ? "Ready ✅" : "Not Ready ❌"
-        },
-        timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'development'
-    });
-});
-
-// Create Wallet Endpoint
-app.post('/api/create-wallet', async (req, res) => {
-    try {
-        const { userId, walletName } = req.body;
+        await xrplService.connect();
+        servicesReady.xrpl = true;
+        console.log("✅ XRPL Service ready");
         
-        if (!userId || !walletName) {
-            return res.status(400).json({
-                error: "userId and walletName are required"
-            });
+        // Test Fireblocks Service
+        console.log("🔥 Testing Fireblocks connection...");
+        const fireblocksHealth = await fireblocksService.healthCheck();
+        servicesReady.fireblocks = fireblocksHealth.success;
+        
+        if (servicesReady.fireblocks) {
+            console.log("✅ Fireblocks Service ready");
+        } else {
+            console.warn("⚠️ Fireblocks Service not ready:", fireblocksHealth.error);
         }
+        
+        servicesReady.server = true;
+        console.log("🎉 All services initialized successfully!");
+        
+    } catch (error) {
+        console.error("❌ Failed to initialize services:", error.message);
+        servicesReady.server = false;
+    }
+}
 
-        console.log(`🏗️ Creating wallet for user: ${userId}`);
+// =============================================================================
+// API ROUTES
+// =============================================================================
 
-        // Create new vault account in Fireblocks
-        const vaultAccount = await fireblocks.createVaultAccount(walletName, false);
+/**
+ * Health Check Endpoint - Enhanced with service status
+ * GET /api/health
+ */
+app.get('/api/health', async (req, res) => {
+    try {
+        // Get detailed service status
+        const xrplHealth = servicesReady.xrpl;
+        const fireblocksHealth = await fireblocksService.healthCheck();
         
-        // Create XRP asset in the vault
-        const xrpAsset = await fireblocks.createVaultAsset(vaultAccount.id, 'XRP');
-        
-        console.log(`✅ Wallet created - Vault ID: ${vaultAccount.id}`);
-        
-        res.json({
-            success: true,
-            message: "Wallet created successfully",
-            wallet: {
-                vaultId: vaultAccount.id,
-                walletName: vaultAccount.name,
-                xrpAddress: xrpAsset.address,
-                assets: [
-                    {
-                        type: 'XRP',
-                        address: xrpAsset.address,
-                        balance: '0'
-                    }
-                ]
+        const healthStatus = {
+            status: "Backend is running 🚀",
+            services: {
+                xrpl: xrplHealth ? "Connected ✅" : "Disconnected ❌",
+                fireblocks: fireblocksHealth.success ? "Ready ✅" : "Not Ready ❌"
             },
-            userId: userId
+            environment: {
+                nodeEnv: process.env.NODE_ENV || 'development',
+                xrplEndpoint: process.env.XRPL_ENDPOINT,
+                fireblocksUrl: process.env.FIREBLOCKS_BASE_URL
+            },
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime(),
+            version: require('./package.json').version || '1.0.0'
+        };
+
+        // Determine overall health
+        const isHealthy = xrplHealth && fireblocksHealth.success;
+        const statusCode = isHealthy ? 200 : 503;
+
+        res.status(statusCode).json({
+            success: isHealthy,
+            ...healthStatus
         });
 
     } catch (error) {
-        console.error("❌ Error creating wallet:", error.message);
-        res.status(500).json({
-            error: "Failed to create wallet",
-            details: error.message
+        console.error("❌ Health check error:", error.message);
+        res.status(503).json({
+            success: false,
+            status: "Service Unavailable ❌",
+            error: error.message,
+            timestamp: new Date().toISOString()
         });
     }
 });
 
-// Get Wallet Info Endpoint
-app.get('/api/wallet/:vaultId', async (req, res) => {
-    try {
-        const { vaultId } = req.params;
-        
-        console.log(`📊 Fetching wallet info for vault: ${vaultId}`);
-        
-        // Get vault account details
-        const vaultAccount = await fireblocks.getVaultAccount(vaultId);
-        
-        // Get all assets in the vault
-        const assets = vaultAccount.assets || [];
-        
-        res.json({
-            success: true,
-            wallet: {
-                vaultId: vaultAccount.id,
-                walletName: vaultAccount.name,
-                assets: assets.map(asset => ({
-                    type: asset.id,
-                    address: asset.address,
-                    balance: asset.balance || '0',
-                    available: asset.available || '0'
-                }))
+/**
+ * Get API Documentation
+ * GET /api/docs
+ */
+app.get('/api/docs', (req, res) => {
+    const apiDocs = {
+        title: "XRPL Fireblocks Asset Platform API",
+        version: "1.0.0",
+        description: "Real-World Asset tokenization platform using XRPL and Fireblocks",
+        baseUrl: `${req.protocol}://${req.get('host')}/api`,
+        endpoints: {
+            health: {
+                method: "GET",
+                path: "/health",
+                description: "Check service health and status"
+            },
+            wallets: {
+                create: {
+                    method: "POST",
+                    path: "/create-wallet",
+                    description: "Create new user wallet",
+                    body: {
+                        userId: "string (required)",
+                        walletName: "string (required)"
+                    }
+                },
+                get: {
+                    method: "GET",
+                    path: "/wallet/:vaultId",
+                    description: "Get wallet information and balances"
+                },
+                list: {
+                    method: "GET",
+                    path: "/wallets",
+                    description: "Get all wallets (admin)"
+                },
+                transactions: {
+                    method: "GET",
+                    path: "/wallet/:vaultId/transactions",
+                    description: "Get transaction history for wallet"
+                }
+            },
+            assets: {
+                pledge: {
+                    method: "POST",
+                    path: "/pledge",
+                    description: "Pledge asset and mint RWA tokens",
+                    body: {
+                        vaultId: "string (required)",
+                        assetType: "string (required)",
+                        assetAmount: "number (required)",
+                        assetDescription: "string (optional)",
+                        tokenSymbol: "string (optional)"
+                    }
+                },
+                redeem: {
+                    method: "POST",
+                    path: "/redeem",
+                    description: "Redeem tokens and release pledged assets",
+                    body: {
+                        vaultId: "string (required)",
+                        tokenAmount: "number (required)",
+                        tokenSymbol: "string (optional)",
+                        redemptionAddress: "string (optional)"
+                    }
+                },
+                swap: {
+                    method: "POST",
+                    path: "/swap",
+                    description: "Create atomic swap between assets",
+                    body: {
+                        vaultId: "string (required)",
+                        fromAsset: "string (required)",
+                        toAsset: "string (required)",
+                        amount: "number (required)",
+                        exchangeRate: "number (optional)"
+                    }
+                }
             }
-        });
-
-    } catch (error) {
-        console.error("❌ Error fetching wallet:", error.message);
-        res.status(500).json({
-            error: "Failed to fetch wallet",
-            details: error.message
-        });
-    }
-});
-
-// Pledge Asset Endpoint (Mint RWA Tokens)
-app.post('/api/pledge', async (req, res) => {
-    try {
-        const { vaultId, assetType, assetAmount, assetDescription } = req.body;
-        
-        if (!vaultId || !assetType || !assetAmount) {
-            return res.status(400).json({
-                error: "vaultId, assetType, and assetAmount are required"
-            });
+        },
+        lovableIntegration: {
+            note: "All endpoints return consistent JSON format perfect for Lovable.ai frontend",
+            responseFormat: {
+                success: "boolean",
+                message: "string",
+                data: "object",
+                timestamp: "ISO string"
+            }
         }
+    };
 
-        console.log(`🏭 Processing pledge for vault ${vaultId}: ${assetAmount} ${assetType}`);
-
-        // For now, return a placeholder response
-        // This will be implemented in the next iteration
-        res.json({
-            success: true,
-            message: "Pledge initiated successfully",
-            pledge: {
-                vaultId: vaultId,
-                assetType: assetType,
-                assetAmount: assetAmount,
-                description: assetDescription,
-                status: "pending",
-                txHash: null, // Will be populated when XRPL transaction is submitted
-                timestamp: new Date().toISOString()
-            }
-        });
-
-    } catch (error) {
-        console.error("❌ Error processing pledge:", error.message);
-        res.status(500).json({
-            error: "Failed to process pledge",
-            details: error.message
-        });
-    }
+    res.json(apiDocs);
 });
 
-// Redeem Asset Endpoint
-app.post('/api/redeem', async (req, res) => {
+// =============================================================================
+// WALLET MANAGEMENT ROUTES
+// =============================================================================
+
+/**
+ * Create new user wallet
+ * POST /api/create-wallet
+ */
+app.post('/api/create-wallet', assetController.createWallet);
+
+/**
+ * Get wallet information
+ * GET /api/wallet/:vaultId
+ */
+app.get('/api/wallet/:vaultId', assetController.getWallet);
+
+/**
+ * Get all wallets (admin endpoint)
+ * GET /api/wallets
+ */
+app.get('/api/wallets', assetController.getAllWallets);
+
+/**
+ * Get wallet transaction history
+ * GET /api/wallet/:vaultId/transactions
+ */
+app.get('/api/wallet/:vaultId/transactions', assetController.getTransactionHistory);
+
+// =============================================================================
+// ASSET TOKENIZATION ROUTES
+// =============================================================================
+
+/**
+ * Pledge asset and mint RWA tokens
+ * POST /api/pledge
+ */
+app.post('/api/pledge', assetController.pledgeAsset);
+
+/**
+ * Redeem tokens and release pledged assets
+ * POST /api/redeem
+ */
+app.post('/api/redeem', assetController.redeemAsset);
+
+/**
+ * Create atomic swap offer
+ * POST /api/swap
+ */
+app.post('/api/swap', assetController.createSwap);
+
+// =============================================================================
+// UTILITY ROUTES
+// =============================================================================
+
+/**
+ * Validate XRPL address
+ * GET /api/validate-address/:address
+ */
+app.get('/api/validate-address/:address', async (req, res) => {
     try {
-        const { vaultId, tokenAmount, assetType } = req.body;
+        const { address } = req.params;
+        const isValid = xrplService.isValidAddress(address);
         
-        if (!vaultId || !tokenAmount || !assetType) {
-            return res.status(400).json({
-                error: "vaultId, tokenAmount, and assetType are required"
-            });
-        }
-
-        console.log(`🔄 Processing redemption for vault ${vaultId}: ${tokenAmount} ${assetType} tokens`);
-
-        // Placeholder response - will be implemented fully later
         res.json({
             success: true,
-            message: "Redemption initiated successfully",
-            redemption: {
-                vaultId: vaultId,
-                tokenAmount: tokenAmount,
-                assetType: assetType,
-                status: "pending",
-                timestamp: new Date().toISOString()
-            }
+            data: {
+                address: address,
+                isValid: isValid,
+                network: isValid ? 'XRPL' : 'invalid'
+            },
+            timestamp: new Date().toISOString()
         });
-
     } catch (error) {
-        console.error("❌ Error processing redemption:", error.message);
         res.status(500).json({
-            error: "Failed to process redemption",
-            details: error.message
+            success: false,
+            error: 'VALIDATION_FAILED',
+            message: error.message,
+            timestamp: new Date().toISOString()
         });
     }
 });
 
-// Atomic Swap Endpoint
-app.post('/api/swap', async (req, res) => {
+/**
+ * Get network information
+ * GET /api/network-info
+ */
+app.get('/api/network-info', async (req, res) => {
     try {
-        const { vaultId, fromAsset, toAsset, amount } = req.body;
+        const networkInfo = await xrplService.getNetworkInfo();
         
-        if (!vaultId || !fromAsset || !toAsset || !amount) {
-            return res.status(400).json({
-                error: "vaultId, fromAsset, toAsset, and amount are required"
-            });
-        }
-
-        console.log(`💱 Processing swap for vault ${vaultId}: ${amount} ${fromAsset} → ${toAsset}`);
-
-        // Placeholder response - will be implemented fully later
         res.json({
             success: true,
-            message: "Swap initiated successfully",
-            swap: {
-                vaultId: vaultId,
-                fromAsset: fromAsset,
-                toAsset: toAsset,
-                amount: amount,
-                status: "pending",
-                timestamp: new Date().toISOString()
-            }
+            data: {
+                xrpl: networkInfo,
+                fireblocks: {
+                    environment: 'sandbox',
+                    baseUrl: process.env.FIREBLOCKS_BASE_URL
+                }
+            },
+            timestamp: new Date().toISOString()
         });
-
     } catch (error) {
-        console.error("❌ Error processing swap:", error.message);
         res.status(500).json({
-            error: "Failed to process swap",
-            details: error.message
+            success: false,
+            error: 'NETWORK_INFO_FAILED',
+            message: error.message,
+            timestamp: new Date().toISOString()
         });
     }
 });
 
-// Error handling middleware
+// =============================================================================
+// ERROR HANDLING MIDDLEWARE
+// =============================================================================
+
+/**
+ * Global error handler
+ */
 app.use((error, req, res, next) => {
     console.error("🚨 Unhandled error:", error);
-    res.status(500).json({
-        error: "Internal server error",
-        message: error.message
+    
+    res.status(error.status || 500).json({
+        success: false,
+        error: error.code || 'INTERNAL_SERVER_ERROR',
+        message: error.message || 'An unexpected error occurred',
+        ...(process.env.NODE_ENV === 'development' && { stack: error.stack }),
+        timestamp: new Date().toISOString()
     });
 });
 
-// 404 handler
+/**
+ * 404 handler
+ */
 app.use('*', (req, res) => {
     res.status(404).json({
-        error: "Endpoint not found",
-        message: `${req.method} ${req.originalUrl} is not a valid endpoint`
+        success: false,
+        error: 'ENDPOINT_NOT_FOUND',
+        message: `${req.method} ${req.originalUrl} is not a valid endpoint`,
+        availableEndpoints: [
+            'GET /api/health',
+            'GET /api/docs',
+            'POST /api/create-wallet',
+            'GET /api/wallet/:vaultId',
+            'POST /api/pledge',
+            'POST /api/redeem',
+            'POST /api/swap'
+        ],
+        timestamp: new Date().toISOString()
     });
 });
 
-// Graceful shutdown
-process.on('SIGINT', async () => {
-    console.log("\n🛑 Shutting down gracefully...");
-    if (xrplConnected) {
-        await client.disconnect();
-        console.log("✅ XRPL connection closed");
+// =============================================================================
+// GRACEFUL SHUTDOWN
+// =============================================================================
+
+/**
+ * Graceful shutdown handler
+ */
+async function gracefulShutdown(signal) {
+    console.log(`\n🛑 Received ${signal}, shutting down gracefully...`);
+    
+    try {
+        // Disconnect from XRPL
+        if (servicesReady.xrpl) {
+            await xrplService.disconnect();
+            console.log("✅ XRPL connection closed");
+        }
+        
+        console.log("✅ Graceful shutdown completed");
+        process.exit(0);
+    } catch (error) {
+        console.error("❌ Error during shutdown:", error.message);
+        process.exit(1);
     }
-    process.exit(0);
+}
+
+// Handle shutdown signals
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+    console.error('🚨 Uncaught Exception:', error);
+    gracefulShutdown('uncaughtException');
 });
 
-// Start Server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-    console.log(`🌐 Backend server running on port ${PORT}`);
-    console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
-    console.log(`📚 Environment: ${process.env.NODE_ENV || 'development'}`);
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('🚨 Unhandled Rejection at:', promise, 'reason:', reason);
+    gracefulShutdown('unhandledRejection');
 });
+
+// =============================================================================
+// SERVER STARTUP
+// =============================================================================
+
+/**
+ * Start the server
+ */
+async function startServer() {
+    try {
+        // Initialize services first
+        await initializeServices();
+        
+        // Start HTTP server
+        const PORT = process.env.PORT || 5000;
+        const server = app.listen(PORT, () => {
+            console.log(`\n🌐 ======================================`);
+            console.log(`🚀 IME XRPL Fireblocks Backend Server`);
+            console.log(`🌐 Running on port ${PORT}`);
+            console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
+            console.log(`📚 API docs: http://localhost:${PORT}/api/docs`);
+            console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+            console.log(`⏰ Started at: ${new Date().toISOString()}`);
+            console.log(`🌐 ======================================\n`);
+        });
+
+        // Handle server errors
+        server.on('error', (error) => {
+            console.error('❌ Server error:', error.message);
+            process.exit(1);
+        });
+
+        return server;
+    } catch (error) {
+        console.error('❌ Failed to start server:', error.message);
+        process.exit(1);
+    }
+}
+
+// Start the server
+startServer();
 
 module.exports = app;
