@@ -1,448 +1,204 @@
-require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
+const compression = require('compression');
+require('dotenv').config();
 
-// Import services
-const xrplService = require('./services/xrplService');
-const fireblocksService = require('./services/fireblocksService');
-
-// Import controllers
-const assetController = require('./controllers/assetController');
+// Import custom modules
+const nativeAssetController = require('./controllers/nativeAssetController');
+const xrplNativeService = require('./services/xrplNativeService');
+const { validateConfig } = require('./config/xrplConfig');
+const { 
+  rateLimitMiddleware, 
+  sanitizeInput, 
+  securityHeaders, 
+  validateRequest, 
+  xrplSecurity, 
+  secureLogger 
+} = require('./middleware/security');
 
 const app = express();
+const PORT = process.env.PORT || 5000;
 
-// Middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+// Validate configuration on startup
+console.log('🔍 Validating XRPL configuration...');
+const configValidation = validateConfig();
+if (!configValidation.isValid) {
+  console.error('❌ Configuration validation failed:');
+  configValidation.errors.forEach(error => console.error(`  - ${error}`));
+  console.error('Please check your .env file and fix the configuration errors.');
+  process.exit(1);
+}
+console.log('✅ Configuration validation passed');
 
-// CORS configuration for Lovable frontend
-app.use(cors({
-    origin: process.env.FRONTEND_URL || '*', // Configure this for your Lovable app
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-}));
-
-// Request logging middleware
-app.use((req, res, next) => {
-    console.log(`📡 ${req.method} ${req.path} - ${new Date().toISOString()}`);
-    next();
-});
-
-// Global variables to track service status
-let servicesReady = {
-    xrpl: false,
-    fireblocks: false,
-    server: false
+// Initialize XRPL service
+const initializeXRPL = async () => {
+  try {
+    await xrplNativeService.initialize();
+    console.log('✅ XRPL service initialized successfully');
+  } catch (error) {
+    console.error('❌ Failed to initialize XRPL service:', error.message);
+    console.error('Server will continue but XRPL operations may fail');
+  }
 };
 
-/**
- * Initialize all services
- */
-async function initializeServices() {
-    console.log("🚀 Initializing services...");
-    
-    try {
-        // Initialize XRPL Service
-        console.log("🔗 Connecting to XRPL...");
-        await xrplService.connect();
-        servicesReady.xrpl = true;
-        console.log("✅ XRPL Service ready");
-        
-        // Test Fireblocks Service
-        console.log("🔥 Testing Fireblocks connection...");
-        const fireblocksHealth = await fireblocksService.healthCheck();
-        servicesReady.fireblocks = fireblocksHealth.success;
-        
-        if (servicesReady.fireblocks) {
-            console.log("✅ Fireblocks Service ready");
-        } else {
-            console.warn("⚠️ Fireblocks Service not ready:", fireblocksHealth.error);
-        }
-        
-        servicesReady.server = true;
-        console.log("🎉 All services initialized successfully!");
-        
-    } catch (error) {
-        console.error("❌ Failed to initialize services:", error.message);
-        servicesReady.server = false;
+// Security middleware (applied first)
+app.use(helmet());
+app.use(compression());
+app.use(securityHeaders);
+app.use(rateLimitMiddleware);
+
+// CORS configuration
+const corsOptions = {
+  origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ['http://localhost:5173'],
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
+
+// Body parsing middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Request processing middleware
+app.use(sanitizeInput);
+app.use(validateRequest);
+app.use(secureLogger);
+
+// Logging middleware (after security middleware)
+app.use(morgan('combined'));
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({
+    success: true,
+    message: 'IME XRPL Native Platform Backend is running',
+    data: {
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      version: '1.0.0',
+      environment: process.env.NODE_ENV || 'development',
+      xrplEndpoint: process.env.XRPL_ENDPOINT
     }
-}
-
-// =============================================================================
-// API ROUTES
-// =============================================================================
-
-/**
- * Health Check Endpoint - Enhanced with service status
- * GET /api/health
- */
-app.get('/api/health', async (req, res) => {
-    try {
-        // Get detailed service status
-        const xrplHealth = servicesReady.xrpl;
-        const fireblocksHealth = await fireblocksService.healthCheck();
-        
-        const healthStatus = {
-            status: "Backend is running 🚀",
-            services: {
-                xrpl: xrplHealth ? "Connected ✅" : "Disconnected ❌",
-                fireblocks: fireblocksHealth.success ? "Ready ✅" : "Not Ready ❌"
-            },
-            environment: {
-                nodeEnv: process.env.NODE_ENV || 'development',
-                xrplEndpoint: process.env.XRPL_ENDPOINT,
-                fireblocksUrl: process.env.FIREBLOCKS_BASE_URL
-            },
-            timestamp: new Date().toISOString(),
-            uptime: process.uptime(),
-            version: require('./package.json').version || '1.0.0'
-        };
-
-        // Determine overall health
-        const isHealthy = xrplHealth && fireblocksHealth.success;
-        const statusCode = isHealthy ? 200 : 503;
-
-        res.status(statusCode).json({
-            success: isHealthy,
-            ...healthStatus
-        });
-
-    } catch (error) {
-        console.error("❌ Health check error:", error.message);
-        res.status(503).json({
-            success: false,
-            status: "Service Unavailable ❌",
-            error: error.message,
-            timestamp: new Date().toISOString()
-        });
-    }
+  });
 });
 
-/**
- * Get API Documentation
- * GET /api/docs
- */
+// API Documentation endpoint
 app.get('/api/docs', (req, res) => {
-    const apiDocs = {
-        title: "XRPL Fireblocks Asset Platform API",
-        version: "1.0.0",
-        description: "Real-World Asset tokenization platform using XRPL and Fireblocks",
-        baseUrl: `${req.protocol}://${req.get('host')}/api`,
-        endpoints: {
-            health: {
-                method: "GET",
-                path: "/health",
-                description: "Check service health and status"
-            },
-            wallets: {
-                create: {
-                    method: "POST",
-                    path: "/create-wallet",
-                    description: "Create new user wallet",
-                    body: {
-                        userId: "string (required)",
-                        walletName: "string (required)"
-                    }
-                },
-                get: {
-                    method: "GET",
-                    path: "/wallet/:vaultId",
-                    description: "Get wallet information and balances"
-                },
-                list: {
-                    method: "GET",
-                    path: "/wallets",
-                    description: "Get all wallets (admin)"
-                },
-                transactions: {
-                    method: "GET",
-                    path: "/wallet/:vaultId/transactions",
-                    description: "Get transaction history for wallet"
-                }
-            },
-            assets: {
-                pledge: {
-                    method: "POST",
-                    path: "/pledge",
-                    description: "Pledge asset and mint RWA tokens",
-                    body: {
-                        vaultId: "string (required)",
-                        assetType: "string (required)",
-                        assetAmount: "number (required)",
-                        assetDescription: "string (optional)",
-                        tokenSymbol: "string (optional)"
-                    }
-                },
-                redeem: {
-                    method: "POST",
-                    path: "/redeem",
-                    description: "Redeem tokens and release pledged assets",
-                    body: {
-                        vaultId: "string (required)",
-                        tokenAmount: "number (required)",
-                        tokenSymbol: "string (optional)",
-                        redemptionAddress: "string (optional)"
-                    }
-                },
-                swap: {
-                    method: "POST",
-                    path: "/swap",
-                    description: "Create atomic swap between assets",
-                    body: {
-                        vaultId: "string (required)",
-                        fromAsset: "string (required)",
-                        toAsset: "string (required)",
-                        amount: "number (required)",
-                        exchangeRate: "number (optional)"
-                    }
-                }
-            }
+  res.json({
+    success: true,
+    message: 'IME XRPL Native Platform API Documentation',
+    data: {
+      platform: 'XRPL Native RWA Tokenization',
+      version: '1.0.0',
+      endpoints: {
+        health: 'GET /api/health',
+        docs: 'GET /api/docs',
+        stats: 'GET /api/native/stats',
+        createWallet: 'POST /api/native/create-wallet',
+        walletInfo: 'GET /api/native/wallet/:address',
+        transactions: 'GET /api/native/transactions/:address',
+        validateAddress: 'GET /api/native/validate/:address',
+        createTrustline: 'POST /api/native/create-trustline',
+        pledge: 'POST /api/native/pledge',
+        redeem: 'POST /api/native/redeem',
+        swap: 'POST /api/native/swap',
+        orderbook: 'GET /api/native/orderbook/:base/:counter'
+      },
+      examples: {
+        createWallet: {
+          method: 'POST',
+          url: '/api/native/create-wallet',
+          body: {
+            userId: 'user123',
+            walletName: 'John Doe Wallet'
+          }
         },
-        lovableIntegration: {
-            note: "All endpoints return consistent JSON format perfect for Lovable.ai frontend",
-            responseFormat: {
-                success: "boolean",
-                message: "string",
-                data: "object",
-                timestamp: "ISO string"
-            }
+        pledge: {
+          method: 'POST',
+          url: '/api/native/pledge',
+          body: {
+            userAddress: 'rXXXXXXXXXXXXXXXXX',
+            assetType: 'Real Estate',
+            assetAmount: '100000',
+            assetDescription: 'Downtown office building'
+          }
         }
-    };
-
-    res.json(apiDocs);
-});
-
-// =============================================================================
-// WALLET MANAGEMENT ROUTES
-// =============================================================================
-
-/**
- * Create new user wallet
- * POST /api/create-wallet
- */
-app.post('/api/create-wallet', assetController.createWallet);
-
-/**
- * Get wallet information
- * GET /api/wallet/:vaultId
- */
-app.get('/api/wallet/:vaultId', assetController.getWallet);
-
-/**
- * Get all wallets (admin endpoint)
- * GET /api/wallets
- */
-app.get('/api/wallets', assetController.getAllWallets);
-
-/**
- * Get wallet transaction history
- * GET /api/wallet/:vaultId/transactions
- */
-app.get('/api/wallet/:vaultId/transactions', assetController.getTransactionHistory);
-
-// =============================================================================
-// ASSET TOKENIZATION ROUTES
-// =============================================================================
-
-/**
- * Pledge asset and mint RWA tokens
- * POST /api/pledge
- */
-app.post('/api/pledge', assetController.pledgeAsset);
-
-/**
- * Redeem tokens and release pledged assets
- * POST /api/redeem
- */
-app.post('/api/redeem', assetController.redeemAsset);
-
-/**
- * Create atomic swap offer
- * POST /api/swap
- */
-app.post('/api/swap', assetController.createSwap);
-
-// =============================================================================
-// UTILITY ROUTES
-// =============================================================================
-
-/**
- * Validate XRPL address
- * GET /api/validate-address/:address
- */
-app.get('/api/validate-address/:address', async (req, res) => {
-    try {
-        const { address } = req.params;
-        const isValid = xrplService.isValidAddress(address);
-        
-        res.json({
-            success: true,
-            data: {
-                address: address,
-                isValid: isValid,
-                network: isValid ? 'XRPL' : 'invalid'
-            },
-            timestamp: new Date().toISOString()
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: 'VALIDATION_FAILED',
-            message: error.message,
-            timestamp: new Date().toISOString()
-        });
+      }
     }
+  });
 });
 
-/**
- * Get network information
- * GET /api/network-info
- */
-app.get('/api/network-info', async (req, res) => {
-    try {
-        const networkInfo = await xrplService.getNetworkInfo();
-        
-        res.json({
-            success: true,
-            data: {
-                xrpl: networkInfo,
-                fireblocks: {
-                    environment: 'sandbox',
-                    baseUrl: process.env.FIREBLOCKS_BASE_URL
-                }
-            },
-            timestamp: new Date().toISOString()
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: 'NETWORK_INFO_FAILED',
-            message: error.message,
-            timestamp: new Date().toISOString()
-        });
-    }
-});
+// XRPL Native Asset routes (with XRPL-specific security)
+app.use('/api/native', xrplSecurity, nativeAssetController);
 
-// =============================================================================
-// ERROR HANDLING MIDDLEWARE
-// =============================================================================
-
-/**
- * Global error handler
- */
-app.use((error, req, res, next) => {
-    console.error("🚨 Unhandled error:", error);
-    
-    res.status(error.status || 500).json({
-        success: false,
-        error: error.code || 'INTERNAL_SERVER_ERROR',
-        message: error.message || 'An unexpected error occurred',
-        ...(process.env.NODE_ENV === 'development' && { stack: error.stack }),
-        timestamp: new Date().toISOString()
-    });
-});
-
-/**
- * 404 handler
- */
+// 404 handler
 app.use('*', (req, res) => {
-    res.status(404).json({
-        success: false,
-        error: 'ENDPOINT_NOT_FOUND',
-        message: `${req.method} ${req.originalUrl} is not a valid endpoint`,
-        availableEndpoints: [
-            'GET /api/health',
-            'GET /api/docs',
-            'POST /api/create-wallet',
-            'GET /api/wallet/:vaultId',
-            'POST /api/pledge',
-            'POST /api/redeem',
-            'POST /api/swap'
-        ],
-        timestamp: new Date().toISOString()
-    });
-});
-
-// =============================================================================
-// GRACEFUL SHUTDOWN
-// =============================================================================
-
-/**
- * Graceful shutdown handler
- */
-async function gracefulShutdown(signal) {
-    console.log(`\n🛑 Received ${signal}, shutting down gracefully...`);
-    
-    try {
-        // Disconnect from XRPL
-        if (servicesReady.xrpl) {
-            await xrplService.disconnect();
-            console.log("✅ XRPL connection closed");
-        }
-        
-        console.log("✅ Graceful shutdown completed");
-        process.exit(0);
-    } catch (error) {
-        console.error("❌ Error during shutdown:", error.message);
-        process.exit(1);
+  res.status(404).json({
+    success: false,
+    message: 'Endpoint not found',
+    data: {
+      requestedUrl: req.originalUrl,
+      availableEndpoints: [
+        'GET /api/health',
+        'GET /api/docs',
+        'POST /api/native/create-wallet',
+        'POST /api/native/pledge'
+      ]
     }
-}
-
-// Handle shutdown signals
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-    console.error('🚨 Uncaught Exception:', error);
-    gracefulShutdown('uncaughtException');
+  });
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('🚨 Unhandled Rejection at:', promise, 'reason:', reason);
-    gracefulShutdown('unhandledRejection');
-});
-
-// =============================================================================
-// SERVER STARTUP
-// =============================================================================
-
-/**
- * Start the server
- */
-async function startServer() {
-    try {
-        // Initialize services first
-        await initializeServices();
-        
-        // Start HTTP server
-        const PORT = process.env.PORT || 5000;
-        const server = app.listen(PORT, () => {
-            console.log(`\n🌐 ======================================`);
-            console.log(`🚀 IME XRPL Fireblocks Backend Server`);
-            console.log(`🌐 Running on port ${PORT}`);
-            console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
-            console.log(`📚 API docs: http://localhost:${PORT}/api/docs`);
-            console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-            console.log(`⏰ Started at: ${new Date().toISOString()}`);
-            console.log(`🌐 ======================================\n`);
-        });
-
-        // Handle server errors
-        server.on('error', (error) => {
-            console.error('❌ Server error:', error.message);
-            process.exit(1);
-        });
-
-        return server;
-    } catch (error) {
-        console.error('❌ Failed to start server:', error.message);
-        process.exit(1);
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || 'Internal server error',
+    data: {
+      error: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+      timestamp: new Date().toISOString()
     }
-}
+  });
+});
+
+// Start server
+const startServer = async () => {
+  // Initialize XRPL first
+  await initializeXRPL();
+  
+  // Start HTTP server
+  app.listen(PORT, () => {
+    console.log(`🚀 IME XRPL Native Platform Backend running on port ${PORT}`);
+    console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+    console.log(`📚 API docs: http://localhost:${PORT}/api/docs`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔗 XRPL Endpoint: ${process.env.XRPL_ENDPOINT}`);
+    console.log(`💎 Default Token: ${process.env.DEFAULT_ASSET_CURRENCY || 'RWA'}`);
+    console.log(`🏦 Token Issuer: ${process.env.DEFAULT_ASSET_ISSUER || 'Not configured'}`);
+    console.log('🎯 Server ready for requests!');
+  });
+};
+
+// Handle graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('🛑 Received SIGTERM, shutting down gracefully...');
+  await xrplNativeService.disconnect();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('🛑 Received SIGINT, shutting down gracefully...');
+  await xrplNativeService.disconnect();
+  process.exit(0);
+});
 
 // Start the server
-startServer();
+startServer().catch(error => {
+  console.error('❌ Failed to start server:', error);
+  process.exit(1);
+});
 
 module.exports = app;

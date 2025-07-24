@@ -1,185 +1,110 @@
-# ============================================================================
-# IME XRPL Fireblocks Backend - Git Ignore Configuration
-# ============================================================================
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Environment Variables (CRITICAL - Contains API secrets)
+# Environment variables
 .env
 .env.local
 .env.development
 .env.test
 .env.production
-.env.staging
-
-# Fireblocks Private Keys and Secrets
-*.key
-*.pem
-fireblocks_secret*
-**/secrets/**
-private-keys/
-
-# Node.js Dependencies
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-lerna-debug.log*
-
-# Runtime and Cache Files
-.npm
-.eslintcache
-.node_repl_history
-*.tgz
-*.tar.gz
 
 # Logs
-logs/
+logs
 *.log
-*.log.*
+
+# Runtime data
 pids
 *.pid
 *.seed
 *.pid.lock
 
-# Coverage and Testing
+# Coverage directory used by tools like istanbul
 coverage/
-.nyc_output
-.coverage/
 *.lcov
-test-results/
 
-# IDE and Editor Files
+# nyc test coverage
+.nyc_output
+
+# node-waf configuration
+.lock-wscript
+
+# Compiled binary addons
+build/Release
+
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env.test
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# next.js build output
+.next
+
+# nuxt.js build output
+.nuxt
+
+# vuepress build output
+.vuepress/dist
+
+# Serverless directories
+.serverless
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
-.DS_Store
-Thumbs.db
 
-# Operating System Files
+# OS generated files
 .DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Desktop.ini
+Thumbs.db
 
-# Temporary Files
+# Temporary files
 tmp/
 temp/
-*.tmp
-*.temp
 
-# Build and Distribution
-dist/
-build/
-out/
-
-# Database Files (if using local DB)
-*.sqlite
-*.sqlite3
-*.db
-
-# Backup Files
-*.backup
-*.bak
-*.old
-
-# API Documentation (if auto-generated)
-docs/api/generated/
-
-# Wallet Files (if storing locally - NOT RECOMMENDED)
+# XRPL specific
 wallets/
+keys/
 *.wallet
+*.key
 
-# Certificate Files
-*.crt
-*.cert
-*.ca-bundle
-
-# Configuration Overrides
-config/local.js
-config/local.json
-
-# Package Manager Lock Files (choose one)
-# Uncomment the one you're NOT using:
-# package-lock.json  # if using yarn
-# yarn.lock          # if using npm
-
-# Fireblocks SDK Cache
-.fireblocks/
-
-# XRPL Cache Files
-.xrpl-cache/
-
-# Development Files
-scratch/
-playground/
-experiments/
-
-# Documentation Drafts
-*.draft.md
-TODO.txt
-NOTES.txt
-
-# Local Development Overrides
-docker-compose.override.yml
-.env.override
-
-# Archive Files
-*.zip
-*.rar
-*.7z
-
-# Video/Audio (shouldn't be in backend)
-*.mp4
-*.avi
-*.mov
-*.mp3
-*.wav
-
-# Large Files
-*.iso
-*.dmg
-
-# ============================================================================
-# Project Specific Ignores
-# ============================================================================
-
-# Lovable Frontend Integration Temp Files
-lovable-integration/
-frontend-temp/
-
-# Asset Upload Temporary Storage
-uploads/temp/
-assets/temp/
-
-# Transaction Logs (if storing locally)
-transaction-logs/
-audit-logs/
-
-# Testing Mock Data
-test-data/
-mock-wallets/
-
-# Performance Profiling
-*.cpuprofile
-*.heapprofile
-
-# ============================================================================
-# IMPORTANT SECURITY NOTES:
-# ============================================================================
-# 
-# 1. NEVER commit .env files - they contain API secrets
-# 2. NEVER commit Fireblocks private keys (.key, .pem files)
-# 3. NEVER commit wallet seeds or private keys
-# 4. Always review files before committing
-# 5. Use 'git status' to check what will be committed
-#
-# To check if sensitive files are tracked:
-# git status --ignored
-#
-# To remove accidentally committed files:
-# git rm --cached filename
-# ============================================================================
+# Test files
+test-results/
+coverage-report/
