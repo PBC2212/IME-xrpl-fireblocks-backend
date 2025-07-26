@@ -184,7 +184,7 @@ class HummingbotService {
      * Create strategy for specific RWA token category
      * @param {Object} params - Strategy parameters
      */
-    async createRWAStrategy(params) {
+    async createStrategy(params) {
         try {
             const { rwaCategory, discountRate, targetCurrency = 'XRP' } = params;
             
@@ -263,7 +263,7 @@ class HummingbotService {
 
             if (!strategy) {
                 // Create strategy on-demand
-                strategy = await this.createRWAStrategy({
+                strategy = await this.createStrategy({
                     rwaCategory,
                     discountRate,
                     targetCurrency
@@ -435,6 +435,240 @@ class HummingbotService {
             filled,
             outputAmount: filled ? swapRequest.amount * swapRequest.discountRate : 0
         };
+    }
+
+    /**
+     * Execute trade via Hummingbot
+     * @param {Object} tradeParams - Trade parameters
+     * @returns {Object} Trade execution result
+     */
+    async executeTrade(tradeParams) {
+        try {
+            const { pair, side, amount, expectedOutput } = tradeParams;
+            
+            this.logger.info('Executing trade via Hummingbot', {
+                pair, side, amount, expectedOutput
+            });
+
+            // Create swap request for Hummingbot
+            const swapRequest = {
+                id: crypto.randomUUID(),
+                rwaToken: { 
+                    currency: pair.split('/')[0], 
+                    amount: amount 
+                },
+                targetCurrency: pair.split('/')[1],
+                amount: amount,
+                discountRate: 0.7 // Default discount
+            };
+
+            // Use existing handleSwapRequest method
+            return await this.handleSwapRequest(swapRequest);
+            
+        } catch (error) {
+            this.logger.error('Trade execution failed:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get active strategies with performance data
+     * @returns {Array} Array of active strategies
+     */
+    async getActiveStrategies() {
+        return Array.from(this.activeStrategies.values()).map(strategy => ({
+            name: strategy.name,
+            rwaCategory: strategy.rwaCategory,
+            tradingPair: strategy.tradingPair,
+            status: strategy.status,
+            createdAt: strategy.createdAt,
+            startedAt: strategy.startedAt,
+            performance: {
+                trades: 0,
+                volume: 0,
+                pnl: 0
+            },
+            lastActivity: new Date().toISOString()
+        }));
+    }
+
+    /**
+     * Update strategy configuration
+     * @param {string} strategyName - Strategy name
+     * @param {Object} updateParams - Parameters to update
+     * @returns {Object} Update result
+     */
+    async updateStrategy(strategyName, updateParams) {
+        try {
+            const strategy = this.activeStrategies.get(strategyName);
+            if (!strategy) {
+                throw new Error(`Strategy ${strategyName} not found`);
+            }
+
+            // Load existing config
+            const existingConfig = await this.loadConfig(strategy.configFile);
+            
+            // Update config with new parameters
+            const updatedConfig = {
+                ...existingConfig,
+                ...updateParams
+            };
+
+            // Save updated config
+            await this.saveConfig(strategy.configFile, updatedConfig);
+
+            // Update strategy object
+            Object.assign(strategy, updateParams);
+            strategy.lastUpdated = new Date().toISOString();
+
+            this.logger.info('Strategy updated', {
+                strategyName,
+                updatedFields: Object.keys(updateParams)
+            });
+
+            return {
+                success: true,
+                status: strategy.status,
+                updatedAt: strategy.lastUpdated
+            };
+
+        } catch (error) {
+            this.logger.error('Strategy update failed:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Stop a running strategy
+     * @param {string} strategyName - Strategy name
+     * @returns {Object} Stop result
+     */
+    async stopStrategy(strategyName) {
+        try {
+            const strategy = this.activeStrategies.get(strategyName);
+            if (!strategy) {
+                throw new Error(`Strategy ${strategyName} not found`);
+            }
+
+            const process = this.strategyProcesses.get(strategyName);
+            if (process) {
+                process.kill('SIGTERM');
+                this.strategyProcesses.delete(strategyName);
+            }
+
+            strategy.status = 'stopped';
+            strategy.stoppedAt = new Date().toISOString();
+
+            this.logger.info('Strategy stopped', { strategyName });
+
+            return {
+                success: true,
+                strategyName,
+                stoppedAt: strategy.stoppedAt
+            };
+
+        } catch (error) {
+            this.logger.error('Strategy stop failed:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Remove a strategy completely
+     * @param {string} strategyName - Strategy name
+     * @returns {Object} Remove result
+     */
+    async removeStrategy(strategyName) {
+        try {
+            const strategy = this.activeStrategies.get(strategyName);
+            if (!strategy) {
+                throw new Error(`Strategy ${strategyName} not found`);
+            }
+
+            // Stop strategy first if running
+            if (strategy.status === 'running') {
+                await this.stopStrategy(strategyName);
+            }
+
+            // Remove config file
+            const configPath = path.join(this.config.configPath, 'strategies', strategy.configFile);
+            try {
+                await fs.unlink(configPath);
+            } catch (error) {
+                this.logger.warn('Failed to remove config file:', error);
+            }
+
+            // Remove from active strategies
+            this.activeStrategies.delete(strategyName);
+
+            this.logger.info('Strategy removed', { strategyName });
+
+            return {
+                success: true,
+                strategyName,
+                removedAt: new Date().toISOString()
+            };
+
+        } catch (error) {
+            this.logger.error('Strategy removal failed:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Create RWA-specific strategy
+     * @param {Object} params - Strategy parameters
+     * @returns {Object} Created strategy
+     */
+    async createRWAStrategy(params) {
+        try {
+            const { rwaCategory, discountRate, targetCurrency = 'XRP', orderSize, spreadPercent, orderLevels, enabled } = params;
+            
+            const strategyName = `rwa_${rwaCategory.toLowerCase()}_${targetCurrency.toLowerCase()}`;
+            const tradingPair = `${this.getCurrencyCode(rwaCategory)}-${targetCurrency}`;
+
+            // Load template and customize
+            const template = await this.loadConfig('rwa_market_making_template.yml');
+            const strategyConfig = {
+                ...template,
+                market: tradingPair,
+                order_amount: orderSize || this.calculateOrderSize(rwaCategory),
+                bid_spread: spreadPercent || this.config.defaultSpreadPercent,
+                ask_spread: spreadPercent || this.config.defaultSpreadPercent,
+                order_levels: orderLevels || 1,
+                custom_api_url: `${this.config.oracleApiUrl}/price/${tradingPair}?discount=${discountRate}`,
+                inventory_target_base_pct: 30 // Keep 30% inventory in RWA tokens
+            };
+
+            // Save strategy config
+            const configFile = `${strategyName}.yml`;
+            await this.saveConfig(configFile, strategyConfig);
+
+            // Track active strategy
+            const strategy = {
+                name: strategyName,
+                configFile,
+                rwaCategory,
+                tradingPair,
+                discountRate,
+                status: 'created',
+                createdAt: new Date().toISOString()
+            };
+
+            this.activeStrategies.set(strategyName, strategy);
+
+            this.logger.info('RWA strategy created', {
+                strategyName,
+                tradingPair,
+                discountRate
+            });
+
+            return strategy;
+
+        } catch (error) {
+            this.logger.error('Failed to create RWA strategy:', error);
+            throw error;
+        }
     }
 
     /**

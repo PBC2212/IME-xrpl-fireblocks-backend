@@ -86,6 +86,7 @@ class OracleService {
 
         // Active RWA token validations and discount calculations
         this.activeValidations = new Map();
+        this.activePledges = new Map(); // Added missing property
         this.discountCache = new Map();
     }
 
@@ -207,6 +208,170 @@ class OracleService {
             this.logger.error('RWA token validation failed:', error);
             throw error;
         }
+    }
+
+    /**
+     * Validate RWA token authenticity
+     * @param {Object} rwaToken - RWA token to validate
+     * @returns {Object} Validation result
+     */
+    async validateTokenAuthenticity(rwaToken) {
+        try {
+            const errors = [];
+
+            // Check if token exists on XRPL
+            try {
+                const trustLines = await this.client.request({
+                    command: 'account_lines',
+                    account: rwaToken.issuer,
+                    ledger_index: 'validated'
+                });
+
+                const tokenExists = trustLines.result.lines.some(line => 
+                    line.currency === rwaToken.currency
+                );
+
+                if (!tokenExists) {
+                    errors.push('RWA token not found on XRPL');
+                }
+            } catch (error) {
+                errors.push('Unable to verify token on XRPL');
+            }
+
+            // Verify issuer is authorized Oracle
+            if (rwaToken.issuer !== this.wallet.address) {
+                errors.push('Token not issued by authorized Oracle');
+            }
+
+            // Check token format
+            if (!this.isValidRWATokenFormat(rwaToken.currency)) {
+                errors.push('Invalid RWA token format');
+            }
+
+            // Validate amount
+            if (!rwaToken.amount || parseFloat(rwaToken.amount) <= 0) {
+                errors.push('Invalid token amount');
+            }
+
+            return {
+                isValid: errors.length === 0,
+                errors,
+                timestamp: new Date().toISOString()
+            };
+
+        } catch (error) {
+            this.logger.error('Token authenticity validation failed:', error);
+            return {
+                isValid: false,
+                errors: [`Validation error: ${error.message}`],
+                timestamp: new Date().toISOString()
+            };
+        }
+    }
+
+    /**
+     * Get current asset valuation
+     * @param {Object} rwaToken - RWA token
+     * @returns {Object} Current valuation
+     */
+    async getCurrentAssetValuation(rwaToken) {
+        try {
+            // Extract asset category from token currency
+            const category = this.getRWACategoryFromToken(rwaToken.currency);
+            const categoryConfig = this.assetCategories[category];
+
+            if (!categoryConfig) {
+                throw new Error(`Unknown RWA category for token: ${rwaToken.currency}`);
+            }
+
+            // Base valuation (in production, would query external services)
+            const baseValue = parseFloat(rwaToken.amount);
+            
+            // Apply market adjustments
+            const marketAdjustment = this.getMarketAdjustment(category);
+            const adjustedValue = baseValue * marketAdjustment;
+
+            return {
+                originalValue: baseValue,
+                currentValue: adjustedValue,
+                marketAdjustment,
+                category,
+                confidence: 85,
+                lastUpdated: new Date().toISOString(),
+                source: 'ime_oracle_system'
+            };
+
+        } catch (error) {
+            this.logger.error('Asset valuation failed:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Calculate swap parameters
+     * @param {Object} rwaToken - RWA token
+     * @param {Object} valuation - Asset valuation
+     * @returns {Object} Swap parameters
+     */
+    async calculateSwapParameters(rwaToken, valuation) {
+        try {
+            const category = this.getRWACategoryFromToken(rwaToken.currency);
+            const categoryConfig = this.assetCategories[category];
+
+            const discountRate = categoryConfig.discountRate;
+            const swapValue = valuation.currentValue * discountRate;
+            const minSwapValue = Math.max(swapValue * 0.9, this.config.minAssetValue);
+            const maxSwapValue = Math.min(swapValue * 1.1, categoryConfig.maxValue);
+
+            return {
+                discountRate,
+                swapValue,
+                minSwapValue,
+                maxSwapValue,
+                category,
+                confidence: valuation.confidence,
+                expiresAt: moment().add(30, 'minutes').toISOString()
+            };
+
+        } catch (error) {
+            this.logger.error('Swap parameter calculation failed:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Check if token format is valid RWA token
+     * @param {string} currency - Currency code
+     * @returns {boolean} Is valid format
+     */
+    isValidRWATokenFormat(currency) {
+        const rwaPatterns = [
+            /^rPROP\w{4}$/,  // Real estate
+            /^rMETL\w{4}$/,  // Precious metals
+            /^rVEHI\w{4}$/,  // Vehicles
+            /^rCOLL\w{4}$/,  // Collectibles
+            /^rEQIP\w{4}$/   // Equipment
+        ];
+
+        return rwaPatterns.some(pattern => pattern.test(currency));
+    }
+
+    /**
+     * Get RWA category from token currency
+     * @param {string} currency - Token currency code
+     * @returns {string} RWA category
+     */
+    getRWACategoryFromToken(currency) {
+        const categoryMap = {
+            'rPROP': 'REAL_ESTATE',
+            'rMETL': 'PRECIOUS_METALS',
+            'rVEHI': 'VEHICLES',
+            'rCOLL': 'COLLECTIBLES',
+            'rEQIP': 'EQUIPMENT'
+        };
+        
+        const prefix = currency.substring(0, 5);
+        return categoryMap[prefix] || 'UNKNOWN';
     }
 
     /**
@@ -508,8 +673,8 @@ class OracleService {
             return {
                 isValid: true,
                 pledge,
-                discountRate: this.assetCategories[pledge.assetId] ? 
-                    this.assetCategories[pledge.assetId].discountRate : 0.7
+                discountRate: this.assetCategories[pledge.category] ? 
+                    this.assetCategories[pledge.category].discountRate : 0.7
             };
 
         } catch (error) {

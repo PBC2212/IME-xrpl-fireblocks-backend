@@ -628,6 +628,47 @@ class SwapEngine {
     }
 
     /**
+     * Get user swap history
+     * @param {string} userAddress - User's XRPL address
+     * @param {Object} options - Query options
+     * @returns {Object} User swap history
+     */
+    getUserSwapHistory(userAddress, options = {}) {
+        try {
+            const { limit = 20, offset = 0, statusFilter } = options;
+            
+            // Get all swaps for user
+            const userSwaps = Array.from(this.swapHistory.values())
+                .filter(swap => {
+                    const matchesUser = swap.quote && swap.quote.userAddress === userAddress;
+                    const matchesStatus = !statusFilter || swap.status === statusFilter;
+                    return matchesUser && matchesStatus;
+                })
+                .sort((a, b) => new Date(b.startTime) - new Date(a.startTime))
+                .slice(offset, offset + limit);
+
+            return {
+                swaps: userSwaps.map(swap => ({
+                    swapId: swap.id,
+                    rwaToken: swap.quote.rwaToken,
+                    targetCurrency: swap.quote.targetCurrency,
+                    inputAmount: swap.quote.inputAmount,
+                    outputAmount: swap.quote.outputAmount,
+                    status: swap.status,
+                    timestamp: swap.startTime,
+                    transactionHash: swap.transactionHash,
+                    fees: swap.quote.fees
+                })),
+                totalCount: userSwaps.length
+            };
+            
+        } catch (error) {
+            this.logger.error('Failed to get user swap history:', error);
+            return { swaps: [], totalCount: 0 };
+        }
+    }
+
+    /**
      * Calculate swap progress percentage
      */
     calculateProgress(steps) {
