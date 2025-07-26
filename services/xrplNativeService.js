@@ -1,4 +1,5 @@
 const { Client, Wallet, xrpToDrops, dropsToXrp } = require('xrpl');
+const { createTrustLineMemo } = require('../utils/trustLineHelpers');
 
 class XRPLNativeService {
   constructor() {
@@ -229,7 +230,58 @@ class XRPLNativeService {
     }
   }
 
-  // Create trust line for tokens
+  // Enhanced create trust line with metadata
+  async createTrustLineEnhanced(walletSeed, tokenSymbol = 'RWA', limit = '1000000', metadata = {}) {
+    await this.ensureConnection();
+    
+    try {
+      const wallet = Wallet.fromSeed(walletSeed);
+      const issuer = process.env.DEFAULT_ASSET_ISSUER || this.issuerWallet?.address;
+      
+      if (!issuer) {
+        throw new Error('No token issuer configured');
+      }
+
+      const trustSet = {
+        TransactionType: 'TrustSet',
+        Account: wallet.address,
+        LimitAmount: {
+          currency: tokenSymbol,
+          issuer: issuer,
+          value: limit
+        },
+        Memos: [
+          createTrustLineMemo('create_trustline', {
+            tokenSymbol,
+            limit,
+            issuer,
+            metadata
+          })
+        ]
+      };
+
+      const prepared = await this.client.autofill(trustSet);
+      const signed = wallet.sign(prepared);
+      const result = await this.client.submitAndWait(signed.tx_blob);
+
+      return {
+        txHash: result.result.hash,
+        currency: tokenSymbol,
+        issuer: issuer,
+        limit: limit,
+        account: wallet.address,
+        validated: result.result.validated,
+        ledgerIndex: result.result.ledger_index,
+        fee: result.result.Fee ? dropsToXrp(result.result.Fee) : '0',
+        metadata,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Failed to create enhanced trust line: ${error.message}`);
+    }
+  }
+
+  // Original create trust line method (for backward compatibility)
   async createTrustLine(walletSeed, tokenSymbol = 'RWA', limit = '1000000') {
     await this.ensureConnection();
     

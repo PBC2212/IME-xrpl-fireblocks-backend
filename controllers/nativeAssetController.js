@@ -7,6 +7,12 @@ const {
   enrichAssetMetadata, 
   getAssetTypes 
 } = require('../middleware/assetValidation');
+const {
+  validateTrustLineParams,
+  calculateTrustLineCosts,
+  analyzeTrustLines,
+  COMMON_TOKENS
+} = require('../utils/trustLineHelpers');
 
 const router = express.Router();
 
@@ -64,6 +70,41 @@ const validateInput = (schema) => {
     next();
   };
 };
+
+// GET /api/native/trust-line-info - Get trust line information and costs
+router.get('/trust-line-info', async (req, res) => {
+  try {
+    const costs = calculateTrustLineCosts();
+    
+    res.json({
+      success: true,
+      message: 'Trust line information retrieved successfully',
+      data: {
+        costs,
+        commonTokens: Object.entries(COMMON_TOKENS).map(([symbol, config]) => ({
+          symbol,
+          ...config
+        })),
+        requirements: {
+          minimumXRPReserve: costs.reserveIncrementXRP,
+          transactionFee: costs.transactionFeeXRP,
+          totalCost: costs.totalCostXRP
+        },
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('Trust line info error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve trust line information',
+      data: {
+        error: error.message,
+        timestamp: new Date().toISOString()
+      }
+    });
+  }
+});
 
 // GET /api/native/asset-types - Get available asset types for tokenization
 router.get('/asset-types', getAssetTypes);
@@ -230,26 +271,94 @@ router.get('/validate/:address', async (req, res) => {
   }
 });
 
-// POST /api/native/create-trustline - Create trust line for RWA tokens
-router.post('/create-trustline', validateInput(schemas.createTrustline), async (req, res) => {
+// POST /api/native/create-trustline - Create trust line for RWA tokens (Enhanced)
+router.post('/create-trustline', async (req, res) => {
   try {
-    const { walletSeed, tokenSymbol, limit } = req.validatedBody;
+    const { walletSeed, tokenSymbol, limit } = req.body;
+    const issuer = process.env.DEFAULT_ASSET_ISSUER;
     
-    const trustLine = await xrplNativeService.createTrustLine(walletSeed, tokenSymbol, limit);
+    // Enhanced validation
+    const validation = validateTrustLineParams(walletSeed, tokenSymbol, limit, issuer);
+    if (!validation.isValid) {
+      return res.status(400).json({
+        success: false,
+        message: 'Trust line validation failed',
+        data: {
+          errors: validation.errors,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+    
+    const trustLine = await xrplNativeService.createTrustLineEnhanced(
+      walletSeed, 
+      tokenSymbol, 
+      limit,
+      {
+        operation: 'create_trustline',
+        tokenSymbol,
+        limit,
+        issuer
+      }
+    );
     
     res.json({
       success: true,
       message: 'Trust line created successfully',
+      data: trustLine,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Enhanced create trustline error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create trust line',
       data: {
-        trustLine,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      }
+    });
+  }
+});
+
+// GET /api/native/analyze-trustlines/:address - Analyze wallet trust lines
+router.get('/analyze-trustlines/:address', async (req, res) => {
+  try {
+    const { address } = req.params;
+    
+    if (!/^r[a-zA-Z0-9]{25,34}$/.test(address)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid XRPL address format',
+        data: {
+          address,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+    
+    const walletInfo = await xrplNativeService.getWalletInfo(address);
+    const analysis = analyzeTrustLines(walletInfo.trustLines, walletInfo.balance);
+    
+    res.json({
+      success: true,
+      message: 'Trust line analysis completed',
+      data: {
+        address,
+        analysis,
+        walletInfo: {
+          balance: walletInfo.balance,
+          ownerCount: walletInfo.ownerCount,
+          trustLineCount: walletInfo.trustLines.length
+        },
         timestamp: new Date().toISOString()
       }
     });
   } catch (error) {
-    console.error('Create trustline error:', error);
+    console.error('Analyze trustlines error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to create trust line',
+      message: 'Failed to analyze trust lines',
       data: {
         error: error.message,
         timestamp: new Date().toISOString()

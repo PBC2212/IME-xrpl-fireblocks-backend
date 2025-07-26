@@ -1,0 +1,114 @@
+🚀 Overview
+IME RWA Swap Facility is a decentralized token swap platform that allows users to swap tokenized real-world assets (RWA tokens) for XRP, USDT, or other supported crypto.
+
+⚖️ No pre-funding required
+
+🔄 Atomic XRPL-native swaps
+
+💰 Value-for-value RWA token conversion
+
+🔗 Optional Fireblocks wallet integration
+
+💼 IME Capital Trust LLC manages backend validation and compliance
+
+🧩 Business Model
+Component	Description
+Users	Pledge real-world assets (e.g., real estate, metals, vehicles) and receive tokenized RWA tokens.
+Swap Facility	Enables these RWA tokens to be swapped for XRP/USDT at a platform-controlled rate (e.g., 70% of appraised value).
+Liquidity Source	Aggregated from existing XRPL DEX liquidity, third-party LPs, or auto-sourced via aggregators like Hummingbot.
+Revenue	Platform charges a 1–3% fee per swap + optional appraisal or tokenization fees.
+Custody	No custody of funds needed; tokens remain in user wallets until atomic swap confirmation.
+Compliance	KYC/AML optional but can be implemented via 3rd-party plug-ins.
+
+🔧 Platform Features
+✅ Tokenize RWA (via IME Oracle System)
+
+🔁 Atomic Swap engine built into XRPL
+
+📉 Swap at Discounted Rate (e.g., 70% of Oracle-approved appraised value)
+
+🧮 Auto-price Calculation
+
+🧠 Smart Swap Routing (uses AMMs, DEX offers, or Fireblocks counterparties)
+
+🔐 Optional Fireblocks wallet integration (custody, signing, MPC)
+
+🔨 Setup Instructions
+bash
+Copy
+Edit
+# Step 1: Clone the platform
+git clone https://github.com/ime-capital/rwa-xrpl-swap.git
+cd rwa-xrpl-swap
+
+# Step 2: Install dependencies
+npm install
+
+# Step 3: Configure XRPL & Fireblocks .env
+cp .env.example .env
+# Edit .env with Notepad
+# XRPL_CLIENT=wss://s.altnet.rippletest.net
+# FIREBLOCKS_API_KEY=
+# FIREBLOCKS_SECRET=
+# PLATFORM_FEE_PERCENT=2.5
+
+# Step 4: Run local server
+node index.js
+
+# Step 5: Launch swap interface (if frontend exists)
+npm run dev
+🔁 Swap Flow (Value-for-Value)
+User pledges real-world asset via IME Oracle → mints 1:1 RWA token.
+
+User connects wallet to Swap UI and selects token to swap.
+
+Oracle verifies asset and discount % (e.g., 70%).
+
+User signs transaction: RWA Token → Platform
+
+Platform signs transaction: XRP/USDT → User
+
+XRPL executes atomic swap with both tokens + platform fee.
+
+Funds routed to user; platform receives RWA token and keeps fee.
+
+🧠 Example: Real Estate Swap
+Real Estate Value	$100,000
+RWA Token Minted	100,000 rPROP
+Platform Swap Rate	70%
+Swap Amount	70,000 USDT
+Platform Fee	1.5% = 1,050 USDT
+Final Received	68,950 USDT
+
+🔒 Security & Compliance
+✅ XRPL native atomicity ensures swap finality
+
+🔐 Optional Fireblocks custody + signature flow
+
+🛂 Optional identity check / OFAC check per swap
+
+📜 Oracle-signed pledges prevent fake assets
+
+🧱 Components
+Component	Description
+oracleService.js	Validates pledges & asset appraisals
+swapEngine.js	Performs price check, discount, and executes swap
+fireblocksService.js	Optional: routes funds through Fireblocks
+dexRouter.js	Fetches best price from XRPL DEX or AMM
+feeManager.js	Handles platform fee collection
+
+🤝 Partnerships & Liquidity Options
+🔁 Use XRPL AMMs & Order Books
+
+🤖 Integrate Hummingbot as liquidity injector
+
+🔄 Allow external LPs to plug in via signed API agreement
+
+📜 Legal & Business Notes
+IME Capital Trust LLC operates the platform as a non-bank financial company.
+
+No custody of user funds unless via Fireblocks (segregated).
+
+Revenue model based on per-swap fees and appraisal/tokenization services.
+
+Platform does not act as counterparty; swaps are peer-to-liquidity via XRPL.

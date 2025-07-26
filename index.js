@@ -7,6 +7,7 @@ require('dotenv').config();
 
 // Import custom modules
 const nativeAssetController = require('./controllers/nativeAssetController');
+const oracleController = require('./controllers/oracleController');
 const xrplNativeService = require('./services/xrplNativeService');
 const { validateConfig } = require('./config/xrplConfig');
 const { 
@@ -96,6 +97,8 @@ app.get('/api/docs', (req, res) => {
         health: 'GET /api/health',
         docs: 'GET /api/docs',
         stats: 'GET /api/native/stats',
+        oracle: 'GET /api/oracle/status',
+        hummingbotFeed: 'GET /api/oracle/hummingbot-feed',
         createWallet: 'POST /api/native/create-wallet',
         walletInfo: 'GET /api/native/wallet/:address',
         transactions: 'GET /api/native/transactions/:address',
@@ -104,7 +107,17 @@ app.get('/api/docs', (req, res) => {
         pledge: 'POST /api/native/pledge',
         redeem: 'POST /api/native/redeem',
         swap: 'POST /api/native/swap',
-        orderbook: 'GET /api/native/orderbook/:base/:counter'
+        orderbook: 'GET /api/native/orderbook/:base/:counter',
+        // Atomic Swaps API
+        swapStatistics: 'GET /api/swaps/statistics',
+        activeSwaps: 'GET /api/swaps/active',
+        userSwaps: 'GET /api/swaps/user/:address',
+        createSwap: 'POST /api/swaps/create',
+        acceptSwap: 'POST /api/swaps/accept',
+        cancelSwap: 'POST /api/swaps/cancel',
+        hummingbotOffer: 'POST /api/swaps/hummingbot-offer',
+        tradingPairs: 'GET /api/swaps/trading-pairs',
+        marketDepth: 'GET /api/swaps/market-depth/:base/:quote'
       },
       examples: {
         createWallet: {
@@ -124,6 +137,29 @@ app.get('/api/docs', (req, res) => {
             assetAmount: '100000',
             assetDescription: 'Downtown office building'
           }
+        },
+        createAtomicSwap: {
+          method: 'POST',
+          url: '/api/swaps/create',
+          body: {
+            walletSeed: 'sXXXXXXXXXXXXXXXXXXXXXXXX',
+            fromAsset: 'RWA',
+            toAsset: 'XRP',
+            amount: '1000',
+            exchangeRate: '0.5',
+            assetType: 'real-estate'
+          }
+        },
+        hummingbotOffer: {
+          method: 'POST',
+          url: '/api/swaps/hummingbot-offer',
+          body: {
+            fromAsset: 'RWA',
+            toAsset: 'XRP',
+            amount: '5000',
+            exchangeRate: '0.7',
+            strategy: 'market_making'
+          }
         }
       }
     }
@@ -132,6 +168,12 @@ app.get('/api/docs', (req, res) => {
 
 // XRPL Native Asset routes (with XRPL-specific security)
 app.use('/api/native', xrplSecurity, nativeAssetController);
+
+// Oracle API routes for Hummingbot integration
+app.use('/api/oracle', oracleController);
+
+// Atomic Swaps API routes
+app.use('/api/swaps', require('./controllers/swapController'));
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -144,7 +186,10 @@ app.use('*', (req, res) => {
         'GET /api/health',
         'GET /api/docs',
         'POST /api/native/create-wallet',
-        'POST /api/native/pledge'
+        'POST /api/native/pledge',
+        'GET /api/swaps/active',
+        'POST /api/swaps/create',
+        'POST /api/swaps/hummingbot-offer'
       ]
     }
   });
