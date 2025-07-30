@@ -14,11 +14,13 @@
     "tokenization",
     "real-world-assets",
     "blockchain",
-    "defi"
+    "defi",
+    "liquidity-integration"
   ],
   "author": "IME Platform",
   "license": "MIT",
   "dependencies": {
+    "axios": "^1.6.2",
     "buffer": "^6.0.3",
     "compression": "^1.7.4",
     "cors": "^2.8.5",
@@ -28,7 +30,11 @@
     "helmet": "^7.1.0",
     "joi": "^17.11.0",
     "morgan": "^1.10.0",
+    "pg": "^8.16.3",
     "rate-limiter-flexible": "^2.4.2",
+    "redis": "^4.6.10",
+    "uuid": "^9.0.1",
+    "winston": "^3.11.0",
     "xrpl": "^3.1.0"
   },
   "devDependencies": {
