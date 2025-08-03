@@ -4,7 +4,7 @@ services:
     env: node
     buildCommand: cd backend && npm install
     startCommand: npm start
-    rootDir: backend
+    rootDir: .
     branch: main
 
   - type: web
