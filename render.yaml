@@ -2,7 +2,7 @@ services:
   - type: web
     name: IME-xrpl-fireblocks-backend
     env: node
-    buildCommand: cd backend && npm install
+    buildCommand: npm install
     startCommand: npm start
     rootDir: .
     branch: main
@@ -10,7 +10,7 @@ services:
   - type: web
     name: token-forge-xrpl
     env: static
-    buildCommand: cd frontend && npm install && npm run build
+    buildCommand: npm run dev
     staticPublishPath: frontend/dist
     rootDir: frontend
     branch: main
