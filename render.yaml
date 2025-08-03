@@ -1,16 +1,16 @@
 services:
   - type: web
-    name: IME-xrpl-fireblocks-backend
+    name: ime-xrpl-platform
     env: node
+    plan: free
     buildCommand: npm install
     startCommand: npm start
-    rootDir: .
-    branch: main
-
-  - type: web
-    name: token-forge-xrpl
-    env: static
-    buildCommand: npm run dev
-    staticPublishPath: frontend/dist
-    rootDir: frontend
-    branch: main
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: XRPL_ENDPOINT
+        value: wss://s.altnet.rippletest.net:51233
+      - key: DEFAULT_ASSET_CURRENCY
+        value: RWA
