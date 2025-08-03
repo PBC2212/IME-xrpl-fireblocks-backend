@@ -1,1 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IME XRPL Platform - Asset Tokenization</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(135deg, #1a365d, #2c5282);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            color: white;
+            flex-direction: column;
+        }
+        
+        .loading-overlay.hidden {
+            display: none;
+        }
+        
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            margin: 0;
+            color: #1a365d;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
+        
+        .header p {
+            margin: 10px 0 0 0;
+            color: #666;
+            font-size: 1.1em;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+        
+        .functions-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 30px;
+            margin-top: 40px;
+        }
+        
+        .function-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            text-align: center;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .function-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+        }
+        
+        .function-icon {
+            font-size: 3em;
+            margin-bottom: 20px;
+        }
+        
+        .function-card h3 {
+            color: #1a365d;
+            margin-bottom: 15px;
+            font-size: 1.4em;
+        }
+        
+        .function-card p {
+            color: #666;
+            margin-bottom: 25px;
+            line-height: 1.6;
+        }
+        
+        .function-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .function-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+        
+        .function-btn:active {
+            transform: translateY(0);
+        }
+        
+        .status-panel {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        
+        .status-item {
+            text-align: center;
+        }
+        
+        .status-label {
+            display: block;
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+        
+        .status-value {
+            display: block;
+            color: #1a365d;
+            font-weight: 600;
+            font-size: 1.1em;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #38a169;
+            margin-left: 8px;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .notification-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            max-width: 400px;
+        }
+        
+        @media (max-width: 768px) {
+            .functions-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .status-panel {
+                flex-direction: column;
+                gap: 15px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <p>Connecting to XRPL Network...</p>
+    </div>
 
+    <!-- Header -->
+    <div class="header">
+        <h1>🏛️ IME XRPL Platform</h1>
+        <p>Enterprise Asset Tokenization on XRPL Network</p>
+    </div>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Status Panel -->
+        <div class="status-panel">
+            <div class="status-item">
+                <span class="status-label">Network Status</span>
+                <span class="status-value">
+                    Connected <span class="status-indicator"></span>
+                </span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">XRPL Network</span>
+                <span class="status-value">Testnet</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Platform</span>
+                <span class="status-value">Ready</span>
+            </div>
+        </div>
+
+        <!-- XRPL Functions -->
+        <div class="functions-grid">
+            <!-- Wallet Creation -->
+            <div class="function-card">
+                <div class="function-icon">🏦</div>
+                <h3>Create XRPL Wallet</h3>
+                <p>Generate a new XRPL wallet with unique address and secret key for secure asset management.</p>
+                <button class="function-btn" onclick="createWallet()">
+                    Create New Wallet
+                </button>
+            </div>
+
+            <!-- Asset Tokenization -->
+            <div class="function-card">
+                <div class="function-icon">🪙</div>
+                <h3>Tokenize Real-World Assets</h3>
+                <p>Convert physical assets into digital tokens on the XRPL network for enhanced liquidity and trading.</p>
+                <button class="function-btn" onclick="tokenizeAsset()">
+                    Tokenize Asset
+                </button>
+            </div>
+
+            <!-- Trustline Management -->
+            <div class="function-card">
+                <div class="function-icon">🔗</div>
+                <h3>Create Trustlines</h3>
+                <p>Establish trustlines to enable trading of custom tokens and assets on the XRPL network.</p>
+                <button class="function-btn" onclick="createTrustline()">
+                    Create Trustline
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Container -->
+    <div id="notification-container" class="notification-container"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>
